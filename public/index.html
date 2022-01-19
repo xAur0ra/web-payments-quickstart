@@ -1,81 +1,173 @@
 <!DOCTYPE html>
 <html lange="en">
-  <head>
-    <script
-      type="text/javascript"
-      src="https://sandbox.web.squarecdn.com/v1/square.js"
-    ></script>
-    <meta charset="utf-8" />
-    <title>Square Web Payments Quickstart</title>
-    <link href="app.css" rel="stylesheet" />
-  </head>
+	<head>
+		<link rel="stylesheet" href="./bootstrap.min.css">
+		<script
+		type="text/javascript"
+		src="https://sandbox.web.squarecdn.com/v1/square.js"
+		></script>
+		<script>
+			const appId = 'sandbox-sq0idb-2toQaFpCeiZ8CcuQ336k2A';
+			const locationId = 'LCC6R4JG1SHVN'; 
+			
+			async function initializeCard(payments) {
+				const card = await payments.card();
+				await card.attach('#card-container'); 
+				return card; 
+			}
 
-  <body>
-    <div id="landing-page-layout">
-      <h2 id="its-working">It's working!</h2>
-      <h1>Welcome to the Web Payments SDK Quickstart</h1>
-      <p>
-        To get started, we recommend following our
-        <a target="_blank" href="/">Quickstart guide</a>.
-      </p>
-      <p>
-        If you need more detail on a method or object, we also have a
-        <a
-          target="_blank"
-          href="https://developer.squareup.com/reference/sdks/web/payments"
-          >technical reference</a
-        >.
-      </p>
+			function buildPaymentRequest(payments) {
+				return payments.paymentRequest({
+					countryCode: 'US',
+					currencyCode: 'USD',
+					total: {
+					amount: '1.00',
+					label: 'Total',
+					},
+				});
+			}
 
-      <div id="example-container">
-        <h3>Examples</h3>
-        <p>
-          These example implementations can be used as a reference or as the
-          base for your own implementation. For these to work, you'll need to
-          set your
-          <a target="_blank" href="https://developer.squareup.com/apps"
-            >applicationId and locationId</a
-          >.
-        </p>
-        <ul id="example-list">
-          <li>
-            <a href="/examples/card.html">Card Payments</a>
-          </li>
-          <li>
-            <a href="/examples/card-payment-with-verification.html"
-              >Card Payments with SCA</a
-            >
-          </li>
-          <li>
-            <a href="/examples/card-on-file-with-verification.html"
-              >Card on File with SCA</a
-            >
-          </li>
-          <li>
-            <a href="/examples/payment-with-card-on-file-and-verification.html"
-              >Payments with Card on File and SCA</a
-            >
-          </li>
-          <li>
-            <a href="/examples/apple-pay.html">Apple Pay</a>
-          </li>
-          <li>
-            <a href="/examples/google-pay.html">Google Pay</a>
-          </li>
-          <li>
-            <a href="/examples/payment-request.html">Payment Request</a>
-          </li>
-          <li>
-            <a href="/examples/ach.html">ACH Bank Transfer</a>
-          </li>
-          <li>
-            <a href="/examples/gift-card.html">Gift Card Payments</a>
-          </li>
-          <li>
-            <a href="/examples/card-styling-simple.html">Card Styling</a>
-          </li>
-        </ul>
-      </div>
-    </div>
-  </body>
+			async function initializeGooglePay(payments) {
+				const paymentRequest = buildPaymentRequest(payments)
+
+				const googlePay = await payments.googlePay(paymentRequest);
+				await googlePay.attach('#google-pay-button');
+
+				return googlePay;
+			}
+
+			// Call this function to send a payment token, buyer name, and other details
+			// to the project server code so that a payment can be created with 
+			// Payments API
+			async function createPayment(token) {
+			const body = JSON.stringify({
+				locationId,
+				sourceId: token,
+			});
+			const paymentResponse = await fetch('/payment', {
+				method: 'POST',
+				headers: {
+				'Content-Type': 'application/json',
+				},
+				body,
+			});
+			if (paymentResponse.ok) {
+				return paymentResponse.json();
+			}
+			const errorBody = await paymentResponse.text();
+			throw new Error(errorBody);
+			}
+
+			// This function tokenizes a payment method. 
+			// The ‘error’ thrown from this async function denotes a failed tokenization,
+			// which is due to buyer error (such as an expired card). It is up to the
+			// developer to handle the error and provide the buyer the chance to fix
+			// their mistakes.
+			async function tokenize(paymentMethod) {
+			const tokenResult = await paymentMethod.tokenize();
+			if (tokenResult.status === 'OK') {
+				return tokenResult.token;
+			} else {
+				let errorMessage = `Tokenization failed-status: ${tokenResult.status}`;
+				if (tokenResult.errors) {
+				errorMessage += ` and errors: ${JSON.stringify(
+					tokenResult.errors
+				)}`;
+				}
+				throw new Error(errorMessage);
+			}
+			}
+
+			// Helper method for displaying the Payment Status on the screen.
+			// status is either SUCCESS or FAILURE;
+			function displayPaymentResults(status) {
+			const statusContainer = document.getElementById(
+				'payment-status-container'
+			);
+			if (status === 'SUCCESS') {
+				statusContainer.classList.remove('is-failure');
+				statusContainer.classList.add('is-success');
+			} else {
+				statusContainer.classList.remove('is-success');
+				statusContainer.classList.add('is-failure');
+			}
+
+			statusContainer.style.visibility = 'visible';
+			} 
+
+			document.addEventListener('DOMContentLoaded', async function () {
+				if (!window.Square) {
+					throw new Error('Square.js failed to load properly');
+				}
+				const payments = window.Square.payments(appId, locationId);
+				let card;
+				try {
+					card = await initializeCard(payments);
+				} catch (e) {
+					console.error('Initializing Card failed', e);
+					return;
+				}
+
+				// Step 5.2: create card payment
+				async function handlePaymentMethodSubmission(event, paymentMethod) {
+				event.preventDefault();
+
+				try {
+					// disable the submit button as we await tokenization and make a
+					// payment request.
+					cardButton.disabled = true;
+					const token = await tokenize(paymentMethod);
+					const paymentResults = await createPayment(token);
+					displayPaymentResults('SUCCESS');
+
+					console.debug('Payment Success', paymentResults);
+				} catch (e) {
+					cardButton.disabled = false;
+					displayPaymentResults('FAILURE');
+					console.error(e.message);
+				}
+				}
+
+				const cardButton = document.getElementById(
+				'card-button'
+				);
+				cardButton.addEventListener('click', async function (event) {
+				await handlePaymentMethodSubmission(event, card);
+				});
+
+				let googlePay;
+				try {
+					googlePay = await initializeGooglePay(payments);
+				} catch (e) {
+					console.error('Initializing Google Pay failed', e);
+					// There are a number of reason why Google Pay may not be supported
+					// (e.g. Browser Support, Device Support, Account). Therefore you
+					// should handle initialization failures, while still loading other
+					// applicable payment methods.
+				}
+				if (googlePay !== undefined) {
+					const googlePayButton = document.getElementById('google-pay-button');
+					googlePayButton.addEventListener('click', async function (event) {
+						await handlePaymentMethodSubmission(event, googlePay);
+					});
+				}  
+			});
+		</script>
+		<meta charset="utf-8" />
+		<title>Square Web Payments Quickstart</title>
+		<link href="app.css" rel="stylesheet" />
+	</head>
+
+	<body>
+		<nav class="navbar navbar-light navbar-expand bg-light navigation-clean">
+			<div class="container"><a class="navbar-brand" href="http://localhost:5000/">RETHINK Supermarket</a><button data-bs-toggle="collapse" class="navbar-toggler" data-bs-target="#navcol-1"></button></div>
+		</nav>
+		<form id="payment-form">
+			<!-- Add the google-pay-button div below -->
+			<div id="google-pay-button"></div>
+			<div id="card-container"></div>
+			<button id="card-button" type="button">Pay $1.00</button>
+		 </form>
+		 <div id="payment-status-container"></div>
+	</body>
 </html>
